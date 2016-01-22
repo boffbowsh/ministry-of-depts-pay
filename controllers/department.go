@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+
 	"github.com/astaxie/beego"
+	"code.google.com/p/go-uuid/uuid"
 )
 
 // oprations for Department
@@ -17,7 +19,7 @@ type DepartmentController struct {
 
 func (c *DepartmentController) URLMapping() {
 	c.Mapping("Post", c.Post)
-	c.Mapping("GetOne", c.GetOne)
+	c.Mapping("Get", c.Get)
 	c.Mapping("GetAll", c.GetAll)
 	c.Mapping("Put", c.Put)
 	c.Mapping("Delete", c.Delete)
@@ -31,10 +33,12 @@ func (c *DepartmentController) URLMapping() {
 // @router / [post]
 func (c *DepartmentController) Post() {
 	var v models.Department
-	json.Unmarshal(c.Ctx.Input.RequestBody, &v)
+	v.Name = c.GetString("name")
+	v.Reference = uuid.New()
+	v.Status = "unpaid"
+
 	if _, err := models.AddDepartment(&v); err == nil {
-		c.Ctx.Output.SetStatus(201)
-		c.Data["json"] = v
+		c.Ctx.Redirect(302, models.GetRedirectUrl(&v))
 	} else {
 		c.Data["json"] = err.Error()
 	}
@@ -47,15 +51,13 @@ func (c *DepartmentController) Post() {
 // @Success 200 {object} models.Department
 // @Failure 403 :id is empty
 // @router /:id [get]
-func (c *DepartmentController) GetOne() {
+func (c *DepartmentController) Get() {
 	idStr := c.Ctx.Input.Param(":id")
 	id, _ := strconv.ParseInt(idStr, 0, 64)
-	v, err := models.GetDepartmentById(id)
-	if err != nil {
-		c.Data["json"] = err.Error()
-	} else {
-		c.Data["json"] = v
-	}
+	v, _ := models.GetDepartmentById(id)
+	status := models.CheckPaymentStatus(v)
+
+	c.Data["json"] = status
 	c.ServeJSON()
 }
 

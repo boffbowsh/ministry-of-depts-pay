@@ -1,10 +1,15 @@
 package models
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"reflect"
 	"strings"
+  "net/http"
+  "io/ioutil"
+	"encoding/json"
+	"os"
 
 	"github.com/astaxie/beego/orm"
 )
@@ -14,6 +19,21 @@ type Department struct {
 	Name      string `orm:"size(128)"`
 	PaymentId string `orm:"size(128)"`
 	Status    string `orm:"size(128)"`
+	Reference string `orm:"size(128)"`
+}
+
+type CreateResponse struct {
+	Links []struct {
+		Rel string `json:"rel"`
+		Method string `json:"method"`
+		Href string `json:"href"`
+	} `json:"links"`
+	Amount int `json:"amount"`
+	Status string `json:"status"`
+	Description string `json:"description"`
+	Reference string `json:"reference"`
+	PaymentId string `json:"payment_id"`
+	ReturnURL string `json:"return_url"`
 }
 
 func init() {
@@ -26,6 +46,85 @@ func AddDepartment(m *Department) (id int64, err error) {
 	o := orm.NewOrm()
 	id, err = o.Insert(m)
 	return
+}
+
+func GetRedirectUrl(m *Department) (string) {
+		url := "https://publicapi-integration-1.pymnt.uk//v1/payments"
+
+		payload := &struct{
+			ReturnUrl string `json:"return_url"`
+			Amount int64 `json:"amount"`
+			Reference string `json:"reference"`
+			Description string `json:"description"`
+			AccountId string `json:"account_id"`
+		} {
+			fmt.Sprintf("http://localhost:8080/departments/%d", m.Id),
+			100000,
+			m.Reference,
+			fmt.Sprintf("Setup fee for %s", m.Name),
+			"",
+		}
+
+		data, _ := json.Marshal(payload)
+
+    req, _ := http.NewRequest("POST", url, bytes.NewBufferString(string(data)))
+
+    req.Header.Add("accept", "application/json")
+    req.Header.Add("authorization", fmt.Sprintf("Bearer %s", os.Getenv("API_KEY")))
+    req.Header.Add("content-type", "application/json")
+
+    res, _ := http.DefaultClient.Do(req)
+
+    defer res.Body.Close()
+    body, _ := ioutil.ReadAll(res.Body)
+
+		response := &CreateResponse{}
+		json.Unmarshal(body, &response)
+
+		o := orm.NewOrm()
+		v := Department{Id: m.Id}
+		o.Read(&v)
+		v.PaymentId = response.PaymentId
+		o.Update(&v, "PaymentID")
+
+		for _, v := range response.Links {
+			if v.Rel == "next_url" {
+				return v.Href
+			}
+		}
+
+		panic(string(body))
+}
+
+func CheckPaymentStatus(m *Department) (string) {
+	url := fmt.Sprintf("https://publicapi-integration-1.pymnt.uk//v1/payments/%s", m.PaymentId)
+
+	req, _ := http.NewRequest("GET", url, nil)
+
+	req.Header.Add("accept", "application/json")
+	req.Header.Add("authorization", fmt.Sprintf("Bearer %s", os.Getenv("API_KEY")))
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := ioutil.ReadAll(res.Body)
+
+	fmt.Println(res)
+	fmt.Println(string(body))
+
+	response := &struct{
+		Status string `json:"status"`
+	}{}
+
+	json.Unmarshal(body, &response)
+
+	o := orm.NewOrm()
+	v := Department{Id: m.Id}
+	o.Read(&v)
+	v.Status = response.Status
+	o.Update(&v, "Status")
+
+	return response.Status
 }
 
 // GetDepartmentById retrieves Department by Id. Returns error if

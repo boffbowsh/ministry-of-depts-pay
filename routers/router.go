@@ -7,4 +7,6 @@ import (
 
 func init() {
     beego.Router("/", &controllers.MainController{})
+		beego.Router("/departments", &controllers.DepartmentController{})
+		beego.Router("/departments/:id", &controllers.DepartmentController{})
 }
